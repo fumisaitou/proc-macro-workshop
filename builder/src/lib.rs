@@ -4,7 +4,7 @@ use proc_macro2::TokenStream;
 use quote::{quote, format_ident};
 use syn::{
     parse_macro_input, Data, DeriveInput, Fields, FieldsNamed,
-    PathSegment, Type, TypePath, Path, ext};
+    Meta, MetaList, PathSegment, Type, TypePath, Path, ext, NestedMeta, Lit, MetaNameValue, Error, PathArguments, AngleBracketedGenericArguments, GenericArgument};
 
 // コンパイラとコード間ではproc_macroのTokenStream
 // コード内ではproc_macro2のTokenStream
@@ -22,7 +22,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let fields_init = builder_fields_init(&input.data);
 
     // setters?build?、まだよく分かってない
-    // let setters = builder_setters(&input.data);
+    let setters = builder_setters(&input.data);
     // let build = builder_build(&input.data, &struct_name);
 
     // Build the output, possibly using quasi-quotation
@@ -34,14 +34,27 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
             }
         }
+
+        pub struct #builder_name {
+            #fields
+        }
+
+        impl #builder_name {
+            #setters
+        }
     };
 
     // Hand the output tokens back to the compiler
     proc_macro::TokenStream::from(expanded)
 }
 
+
+// DataはStruct, Enum, Unionのenum
 fn builder_fields(data: &Data) -> TokenStream {
     let fields = extract_fields(data);
+
+    // FieldsNamedにあるnamed(Punctuated)をiterateして
+    // 各要素にまたいで変数名identと型をゲット
     let option_wrapped = fields.named.iter().map(|f| {
         let ty = &f.ty;
         let ident = &f.ident;
@@ -55,25 +68,87 @@ fn builder_fields(data: &Data) -> TokenStream {
             }
         }
     });
+
+    // option_wrappedがiterなので各要素を繰り返しで記述してる
+    // アスタリスクの前の文字がセパレータとして使われます。
     quote!{
-        #(#option_wrapped),*  // まじ意味わからん
+        #(#option_wrapped),*
     }
 }
 
+// DataはStruct, Enum, Unionのenum
 fn builder_fields_init(data: &Data) -> TokenStream{
     let fields = extract_fields(data);
     let value_none = fields.named.iter().map(|f| {
         let ident = &f.ident;
         quote!{
-            #ident:
+            #ident: std::option::Option::None
         }
-    })
+    });
+    quote!{
+        #(#value_none),*
+    }
+}
+
+
+fn builder_setters(data: &Data) -> TokenStream {
+    let fields = extract_fields(data);
+    let setters = fields.named.iter().map(|f| {
+        let ident = &f.ident;
+        let ty = &f.ty;
+        let attrs = &f.attrs;
+
+        enum AttrParseResult {
+            Value(String),
+            InvalidKey(Meta),
+        };
+
+        let each_lit = attrs.iter().find_map(|attr| match attr.parse_meta() {
+            Ok(meta) => match meta {
+                Meta::List(MetaList {
+                    ref path,
+                    paren_token: _,
+                    ref nested,
+                }) => {
+                    path.get_ident().map(|i| i == "builder")?;
+                    nested.first().and_then(|nm| match nm {
+                        NestedMeta::Meta(Meta::NameValue(MetaNameValue {
+                            ref path,
+                            eq_token: _,
+                            lit: Lit::Str(ref litstr),
+                        })) => {
+                            if !path.get_ident().map(|i| i == "each").unwrap_or(false) {
+                                return Some(AttrParseResult::InvalidKey(meta.clone()));
+                            }
+                            Some(AttrParseResult::Value(litstr.value()))
+                        }
+                        _ => None,
+                    })
+                }
+                _ => None,
+            },
+            _ => None,
+        });
+
+        if let Some(AttrParseResult::InvalidKey(ref meta)) = each_lit {
+            return Error::new_spanned(meta, "expected `builder(each = \"...\")`")
+                .to_compile_error();
+        }
+
+        if !type_is_vec(unwrap_option(ty)) && each_lit.is_some() {
+            return Error::new_spanned(ty, "barr").to_compile_error();
+        }
+
+        // ********************************************
+        // line 125
+    });
 }
 
 
 // ---------------------------------------------------
 
-
+// DataからStructのみを抽出
+// Structのfields(Fields)からNamed(FieldsNamed)をゲット
 fn extract_fields(data: &Data) -> &FieldsNamed {
     match *data {
         Data::Struct(ref data) => match data.fields {
@@ -88,11 +163,50 @@ fn type_is_option(ty: &Type) -> bool {
     type_is_contained_by(ty, "Option")
 }
 
+fn type_is_vec(ty: &Type) -> bool {
+    type_is_contained_by(ty, "Vec")
+}
+
 fn type_is_contained_by<T: AsRef<str>>(ty: &Type, container_type: T) -> bool {
     let container_type = container_type.as_ref();
     extract_last_path_segment(ty)
         .map(|path_seg| path_seg.ident == container_type)
         .unwrap_or(false)
+}
+
+fn unwrap_option(ty: &Type) -> &Type {
+    unwrap_generic_type(ty, "Option")
+}
+
+fn unwrap_vec(ty: &Type) -> &Type {
+    unwrap_generic_type(ty, "Vec")
+}
+
+fn unwrap_option_vec(ty: &Type) -> &Type {
+    unwrap_vec(unwrap_option(ty))
+}
+
+fn unwrap_generic_type<T: AsRef<str>>(ty: &Type, container_type: T) -> &Type {
+    let container_type = container_type.as_ref();
+    extract_last_path_segment(ty)
+        .and_then(|path_seg| {
+            if path_seg.ident != container_type {
+                return None;
+            }
+            match path_seg.arguments {
+                PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+                    colon2_token: _,
+                    lt_token: _,
+                    ref args,
+                    gt_token,
+                }) => args.first().and_then(|a| match a {
+                    &GenericArgument::Type(ref inner_ty) => Some(inner_ty),
+                    _ => None,
+                }),
+                _ => None,
+            }
+        })
+        .unwrap_or(ty)
 }
 
 fn extract_last_path_segment(ty: &Type) -> Option<&PathSegment> {
