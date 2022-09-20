@@ -4,7 +4,9 @@ use proc_macro2::TokenStream;
 use quote::{quote, format_ident};
 use syn::{
     parse_macro_input, Data, DeriveInput, Fields, FieldsNamed,
-    Meta, MetaList, PathSegment, Type, TypePath, Path, ext, NestedMeta, Lit, MetaNameValue, Error, PathArguments, AngleBracketedGenericArguments, GenericArgument};
+    Meta, MetaList, PathSegment, Type, TypePath, Path,
+    NestedMeta, Lit, MetaNameValue, Error, PathArguments, 
+    AngleBracketedGenericArguments, GenericArgument, Ident};
 
 // コンパイラとコード間ではproc_macroのTokenStream
 // コード内ではproc_macro2のTokenStream
@@ -23,7 +25,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     // setters?build?、まだよく分かってない
     let setters = builder_setters(&input.data);
-    // let build = builder_build(&input.data, &struct_name);
+    let build = builder_build(&input.data, &struct_name);
 
     // Build the output, possibly using quasi-quotation
     let expanded = quote!{
@@ -41,6 +43,10 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         impl #builder_name {
             #setters
+
+            pub fn build(&mut self) -> std::result::Result<#struct_name, std::boxed::Box<dyn std::error::Error>> {
+                #build
+            }
         }
     };
 
@@ -141,9 +147,103 @@ fn builder_setters(data: &Data) -> TokenStream {
 
         // ********************************************
         // line 125
+        match each_lit {
+            Some(AttrParseResult::Value(ref lit))
+                if ident.as_ref().map(|i| i == lit).unwrap_or(false) =>
+            {
+                let option_vec_unwrapped = unwrap_option_vec(ty);
+                quote!{
+                    fn #ident(&mut self, #ident: #option_vec_unwrapped) -> &mut Self {
+                        match self.#ident {
+                            std::option::Option::Some(ref mut v) => v.push(#ident),
+                            std::option::Option::None => {
+                                self.#ident = std::option::Option::Some(vec![#ident]);
+                            }
+                        }
+                        self
+                    }
+                }
+            }
+            Some(AttrParseResult::Value(ref lit)) => {
+                let option_vec_unwrapped = unwrap_option_vec(ty);
+                let option_unwrapped = unwrap_option(ty);
+                let lit = format_ident!("{}",lit);
+                quote!{
+                    fn #ident(&mut self, #ident: #option_unwrapped) -> &mut Self {
+                        self.#ident = std::option::Option::Some(#ident);
+                        self
+                    }
+
+                    fn #lit(&mut self, #lit: #option_vec_unwrapped) -> &mut Self {
+                        match self.#ident {
+                            std::option::Option::Some(ref mut v) => v.push(#lit),
+                            std::option::Option::None => {
+                                self.#ident = std::option::Option::Some(vec![#lit]);
+                            }
+                        }
+                        self
+                    }
+                }
+            }
+            Some(AttrParseResult::InvalidKey(_)) => unreachable!(),
+            None => {
+                let option_unwrapped = unwrap_option(ty);
+                quote!{
+                    fn #ident(&mut self, #ident: #option_unwrapped) -> &mut Self {
+                        self.#ident = std::option::Option::Some(#ident);
+                        self
+                    }
+                }
+                
+            }
+        }
     });
+    quote!{
+        #(#setters),*
+    }
 }
 
+fn builder_build(data: &Data, struct_name: &Ident) -> TokenStream {
+    let fields = extract_fields(data);
+    let set_check = fields.named.iter().filter_map(|f| {
+        let ident = &f.ident;
+        let ty = &f.ty;
+        if type_is_option(ty) || type_is_vec(ty) {
+            return None;
+        }
+        let err = format!("field `{}` is not set.", ident.as_ref().unwrap());
+        Some(quote!{
+            if self.#ident.is_none() {
+                return Err(#err.into())
+            }
+        })
+    });
+    let build_values = fields.named.iter().map(|f| {
+        let ident = &f.ident;
+        let ty = &f.ty;
+        if type_is_option(ty) {
+            quote!{
+                #ident: self.#ident.clone()
+            }
+        } else if type_is_vec(ty) {
+            quote!{
+                #ident: self.#ident.clone().unwrap_or_else(std::vec::Vec::new)
+            }
+        } else {
+            quote!{
+                #ident: self.#ident.clone().unwrap()
+            }
+        }
+    });
+
+    quote!{
+            #(#set_check)*
+
+            Ok(#struct_name {
+                #(#build_values),*
+            })
+    }
+}
 
 // ---------------------------------------------------
 
