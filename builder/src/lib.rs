@@ -75,33 +75,76 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         _ => panic!("expects struct"),
     };
 
-    let checks = idents.iter().map(|ident| {
-        let err = format!("Required fiels '{}' is missing", ident.to_string());
-        quote!{
-            if self.#ident.is_none() {
-                return Err(#err.into())
+    let checks = idents
+        .iter()
+        .zip(&types)
+        .filter(|(_, ty)| !is_option(ty))
+        .map(|(ident, _)| {
+            let err = format!("Required fiels '{}' is missing", ident.to_string());
+            quote!{
+                if self.#ident.is_none() {
+                    return Err(#err.into())
+                }
             }
-        }
-    });
+        });
+    
+    let builder_fields = idents
+        .iter()
+        .zip(&types)
+        .map(|(ident, ty)| {
+            let t = unwrap_option(ty).unwrap_or(ty);
+            quote!{
+                #ident: Option<#t>
+            }
+        });
 
+    let struct_fields = idents
+        .iter()
+        .zip(&types)
+        .map(|(ident, ty)| {
+            if is_option(ty) {
+                quote!{
+                    #ident: self.#ident.clone()
+                }
+            } else {
+                quote!{
+                    #ident: self.#ident.clone().unwrap()
+                }
+            }
+        });
+
+    let setters = idents
+        .iter()
+        .zip(&types)
+        .map(|(ident, ty)| {
+            let t = unwrap_option(ty).unwrap_or(ty);
+            quote!{
+                pub fn #ident(&mut self, #ident: #t) -> &mut Self {
+                    self.#ident = Some(#ident);
+                    self
+                }
+            }
+        });
 
     let expanded = quote!{
         #struct_vis struct #builder_name {
-            #(#idents: Option<#types>),*
+            #(#builder_fields),*
+            //#(#idents: Option<#types>),*
         }
 
         impl #builder_name {
-            #(fn #idents(&mut self, #idents: #types) -> &mut Self {
-                self.#idents = Some(#idents);
-                self
-            })*
+            #(#setters)*
+            // #(fn #idents(&mut self, #idents: #types) -> &mut Self {
+            //     self.#idents = Some(#idents);
+            //     self
+            // })*
 
             pub fn build(&mut self) -> Result<#struct_name, Box<dyn std::error::Error>> {
                 #(#checks)*
                 Ok(#struct_name {
-                    #(#idents: self.#idents.clone().unwrap()),*
+                    //#(#idents: self.#idents.clone().unwrap()),*
+                    #(#struct_fields),*
                 })
-                
             }
         }
 
@@ -116,3 +159,39 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     proc_macro::TokenStream::from(expanded)
 }
+
+
+fn is_option(ty: &Type) -> bool {
+    match get_last_path_segment(ty) {
+        Some(seg) => seg.ident == "Option",
+        _ => false,
+    }
+}
+
+fn unwrap_option(ty: &Type) -> Option<&Type> {
+    if !is_option(ty) {
+        return None;
+    }
+    match get_last_path_segment(ty) {
+        Some(seg) => match seg.arguments {
+            PathArguments::AngleBracketed(ref args) => {
+                args.args.first().and_then(|arg| match arg {
+                    &GenericArgument:: Type(ref ty) => Some(ty),
+                    _ => None,
+                })
+            }
+            _ => None,
+        },
+        None => None,
+    }
+}
+
+fn get_last_path_segment(ty: &Type) -> Option<&PathSegment> {
+    match ty {
+        Type::Path(path) => path.path.segments.last(),
+        _ => None,
+    }
+}
+
+// テスト6
+// リファクタリング手前まで
