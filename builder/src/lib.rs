@@ -8,6 +8,12 @@ use syn::{
     NestedMeta, Lit, MetaNameValue, Error, PathArguments, 
     AngleBracketedGenericArguments, GenericArgument, Ident, Visibility};
 
+
+enum LitOrError {
+    Lit(String),
+    Error(syn::Error),
+}
+
 // test1
 // 空のderiveマクロを作る
 
@@ -101,7 +107,7 @@ fn build_builder_struct(
                 }
             } else {
                 quote!{
-                    #ident: Option<#ty>
+                    #ident: std::option::Option<#ty>
                 }
             }
         });
@@ -142,10 +148,20 @@ fn build_builder_impl(
                 .map(|attr| match attr.parse_meta() {
                     Ok(Meta::List(list)) => match list.nested.first() {
                         Some(NestedMeta::Meta(Meta::NameValue(MetaNameValue {
-                            path: _,
+                            ref path,
                             eq_token: _,
                             lit: Lit::Str(ref str),
-                        }))) => Some(str.value()),
+                        }))) => {
+                            if let Some(name) = path.segments.first() {
+                                if name.ident.to_string() != "each" {
+                                    return Some(LitOrError::Error(syn::Error::new_spanned(
+                                        list, 
+                                        "expected `builder(each = \"...\")`",
+                                    )));
+                                }
+                            }
+                            Some(LitOrError::Lit(str.value()))
+                        }
                         _ => None,
                     },
                     _ => None,
@@ -155,7 +171,7 @@ fn build_builder_impl(
             let ident = &field.ident.as_ref();
             let ty = unwrap_option(&field.ty).unwrap_or(&field.ty);
             match ident_each_name {
-                Some(name) => {
+                Some(LitOrError::Lit(name)) => {
                     let ty_each = unwrap_vector(ty).unwrap();
                     let ident_each = Ident::new(name.as_str(), Span::call_site());
                     if ident.unwrap().to_string() == name {
@@ -178,6 +194,7 @@ fn build_builder_impl(
                         }
                     }
                 },
+                Some(LitOrError::Error(err)) => err.to_compile_error().into(),
                 None => {
                     if is_vector(&ty) {
                         quote!{
@@ -189,7 +206,7 @@ fn build_builder_impl(
                     } else {
                         quote!{
                             pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
-                                self.#ident = Some(#ident);
+                                self.#ident = std::option::Option::Some(#ident);
                                 self
                             }
                         }
@@ -215,7 +232,7 @@ fn build_builder_impl(
         impl #builder_name {
             #(#setters)*
 
-            pub fn build(&mut self) -> Result<#struct_name, Box<dyn std::error::Error>> {
+            pub fn build(&mut self) -> std::result::Result<#struct_name, std::boxed::Box<dyn std::error::Error>> {
                 #(#checks)*
                 Ok(#struct_name {
                     #(#struct_fields),*
