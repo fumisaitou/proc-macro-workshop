@@ -14,50 +14,6 @@ enum LitOrError {
     Error(syn::Error),
 }
 
-// test1
-// 空のderiveマクロを作る
-
-// test2
-// CommandBuilder構造体のインスタンスを返すbuilder関数をCommand構造体に実装
-// pub struct CommandBuilder {
-//     executable: Option<String>,
-//     args: Option<Vec<String>>,
-//     env: Option<Vec<String>>,
-//     current_dir: Option<String>,
-// }
-
-// impl Command {
-//     pub fn builder() -> CommandBuilder {
-//         CommandBuilder {
-//             executable: None,
-//             args: None,
-//             env: None,
-//             current_dir: None,
-//         }
-//     }
-// }
-
-// test3
-// CommandBuilder構造体の各フィールドに対するsetterメソッドを作る
-//     impl CommandBuilder {
-//         fn executable(&mut self, executable: String) -> &mut Self {
-//             self.executable = Some(executable);
-//             self
-//         }
-
-// test4
-// Command構造体のインスタンスを返すbuildメソッドをCommandBuilder構造体に実装
-//   CommandBuilderの各フィールドがNoneの場合はエラーを返すようにする
-//     impl CommandBuilder {
-//         pub fn build(&mut self) -> Result<Command, Box<dyn Error>> {
-//             ...
-//         }
-//     }
-
-// test5
-// CommandBuilder構造体でメソッドチェーンを使えるように
-
-
 #[proc_macro_derive(Builder, attributes(builder))]
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -326,3 +282,46 @@ fn get_last_path_segment(ty: &Type) -> Option<&PathSegment> {
         _ => None,
     }
 }
+
+// test1
+// 空のderiveマクロを作る
+
+// test2
+// CommandBuilder構造体のインスタンスを返すbuilder関数をCommand構造体に実装
+// pub struct CommandBuilder {
+//     executable: Option<String>,
+//     args: Option<Vec<String>>,
+//     env: Option<Vec<String>>,
+//     current_dir: Option<String>,
+// }
+
+// impl Command {
+//     pub fn builder() -> CommandBuilder {
+//         CommandBuilder {
+//             executable: None,
+//             args: None,
+//             env: None,
+//             current_dir: None,
+//         }
+//     }
+// }
+
+// test3
+// CommandBuilder構造体の各フィールドに対するsetterメソッドを作る
+//     impl CommandBuilder {
+//         fn executable(&mut self, executable: String) -> &mut Self {
+//             self.executable = Some(executable);
+//             self
+//         }
+
+// test4
+// Command構造体のインスタンスを返すbuildメソッドをCommandBuilder構造体に実装
+//   CommandBuilderの各フィールドがNoneの場合はエラーを返すようにする
+//     impl CommandBuilder {
+//         pub fn build(&mut self) -> Result<Command, Box<dyn Error>> {
+//             ...
+//         }
+//     }
+
+// test5
+// CommandBuilder構造体でメソッドチェーンを使えるように
