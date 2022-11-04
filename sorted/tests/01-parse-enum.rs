@@ -29,14 +29,19 @@
 //     https://docs.rs/syn/1.0/syn/enum.Item.html
 
 use sorted::sorted;
+use num_bigint::BigInt;
+
 
 #[sorted]
-pub enum Conference {
-    RustBeltRust,
-    RustConf,
-    RustFest,
-    RustLatam,
-    RustRush,
+fn rust_function(a: BigInt, b: BigInt) -> BigInt {
+	a * b
 }
+// pub enum Conference {
+//     RustBeltRust,
+//     RustConf,
+//     RustFest,
+//     RustLatam,
+//     RustRush,
+// }
 
 fn main() {}
