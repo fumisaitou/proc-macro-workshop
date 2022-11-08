@@ -29,11 +29,11 @@
 //     https://docs.rs/syn/1.0/syn/enum.Item.html
 
 use sorted::sorted;
-use num_bigint::BigInt;
+// use num_bigint::BigInt;
 
 
 #[sorted]
-fn rust_function(a: BigInt, b: BigInt) -> BigInt {
+fn rust_function(a: u32, b: u32) -> u32 {
 	a * b
 }
 // pub enum Conference {
