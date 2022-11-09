@@ -1,7 +1,8 @@
 extern crate proc_macro;
 
-use quote::{quote, format_ident};
-use syn::{parse_macro_input, Item, FnArg, Type};
+use quote::quote;
+use syn::{parse_macro_input, Item, FnArg, Signature, Type, TypePath, PathSegment};
+use proc_macro2::TokenStream;
 
 
 #[proc_macro_attribute]
@@ -13,143 +14,59 @@ pub fn sorted(_args: proc_macro::TokenStream, input: proc_macro::TokenStream) ->
         _ => panic!("function is only allowed."),
     };
 
-
     let fn_name = &item_fn.sig.ident.clone();
-
-    // let fn_name_str = format!("{}", fn_name);
-
     let fn_data = &item_fn.sig;
+    let inputs_parse = inputs_type(fn_data);
+    let output_ty = output_type(fn_data);
 
-    let inputs_parse = fn_data
-        .inputs
-        .iter()
-        .map(|var| {
-            // 引数の型は明記されなければならない
-            match var {
-                FnArg::Typed(cap) => {
-                    // let _arg_name = match &cap.pat {
-                    //     Pat::Ident(name) => name.ident.clone(),
-                    //     _ => panic!("Now only Ident pattern"),
-                    // };
-
-                    let arg_type = match &*cap.ty {
-                        Type::Path(p) => p.path.segments
-                            .iter()
-                            .last()
-                            .map(|seg| {
-                                seg.ident.clone()
-                            }),
-                        _ => panic!("only type pattern path at input"),
-                    };
-
-                    let un_arg_type = arg_type.unwrap();
-                    quote!{
-                        #un_arg_type
-                    }
-                },
-                _ => panic!("Need an explicitly typed input pattern "),
-            }
-        });
-
-    let inputs_token = quote!{
-        #(#inputs_parse) *
-    };
-
-
-    let fn_output_ty = match &fn_data.output {
-        syn::ReturnType::Default => panic!("return type is necessary"),
-        syn::ReturnType::Type(_, ty) => match &**ty {
-            Type::Path(pt) => pt.path.segments
-                .iter()
-                .last()
-                .map(|seg| {
-                    seg.ident.clone()
-                }),
-            _ => panic!("only return type pattern path"),
-        },
-    };
-
-    // let mut inputs_str = String::from("");
-    // for (i, t) in inputs_parse.enumerate() {
-    //     if (i == 0) {
-    //         inputs_str = format!("{}", t);
-    //     } else  {
-    //         inputs_str = format!("{} {}", inputs_str, t);
-    //     }
-    // };
-
-    
-    
-    let output_token = quote!{fn_output_ty.unwrap()};
-
-    let fn_body = format!("'(extern {} (-> ({}) {}))'", fn_name, inputs_token, output_token);
-    // let fn_body = quote!{
-    //     "(extern #fn_name (-> (#inputs_token) output_token))"
-    // };
-
+    let fn_body = format!("'(extern {} (-> ({}) {}))'", fn_name, inputs_parse, output_ty);
     let expanded = quote!{
         const #fn_name: &str = #fn_body;
     };
-
-    // let re = dbg!(expanded);
-    // proc_macro::TokenStream::from(re)
     
-    proc_macro::TokenStream::from(expanded)
-
-    // proc_macro::TokenStream::from(quote!{})
-    
+    proc_macro::TokenStream::from(expanded)    
 
 }
 
-// let inputs_parse = fn_data
-//         .inputs
-//         .iter()
-//         .map(|var| {
-//             // 引数の型は明記されなければならない
-//             match var {
-//                 FnArg::Captured(cap) => {
-//                     let _arg_name = match &cap.pat {
-//                         Pat::Ident(name) => name.ident.clone(),
-//                         _ => panic!("Now only Ident pattern"),
-//                     };
+fn inputs_type(data: &Signature) -> TokenStream {
+    let ret = data.inputs.iter().map(|arg| {
+        match arg {
+            FnArg::Typed(pat) => {
+                let arg_type = match get_last_path_segment(&*pat.ty) {
+                    Some(path) => path.ident.clone(),
+                    None => panic!("only type pattern path at input"),
+                };
 
-//                     let arg_type = match &cap.ty {
-//                         Type::Path(p) => p.path.segments
-//                             .iter()
-//                             .last()
-//                             .map(|seg| {
-//                                 seg.ident.clone()
-//                             }),
-//                         _ => panic!("only type pattern path at input"),
-//                     };
+                quote!{
+                    #arg_type
+                }
+            },
+            _ => panic!("Need an explicitly typed input pattern "),
+        }
+    });
 
-//                     let un_arg_type = arg_type.unwrap();
-//                     quote!{
-//                         #un_arg_type
-//                     }
-//                 },
-//                 _ => panic!("Need an explicitly typed input pattern "),
-//             }
-//         });
+    quote!{
+        #(#ret) *
+    }
+}
 
-    // let mut inputs_str = String::from("");
-    // for (i, t) in inputs_parse.enumerate() {
-    //     if (i == 0) {
-    //         inputs_str = format!("{}", t);
-    //     } else  {
-    //         inputs_str = format!("{} {}", inputs_str, t);
-    //     }
-    // };
+fn output_type(data: &Signature) -> TokenStream {
+    let ret = match &data.output {
+        syn::ReturnType::Default => panic!("return type is necessary"),
+        syn::ReturnType::Type(_, ty) => match get_last_path_segment(&*ty) {
+            Some(path) => path.ident.clone(),
+            None => panic!("only return type pattern path"),
+        }
+    };
 
-    // let output_str = String::from(stringify!(fn_output_ty.unwrap()));
+    quote!{
+        #ret
+    }
+}
 
-    // let fn_body = format!("'(extern {} (-> ({}) {}))'", fn_name, inputs_str, output_str);
-
-    // let expanded = quote!{
-    //     const #fn_name_str: String = #fn_body;
-    // };
-
-    // proc_macro::TokenStream::from(expanded)
-
-
-    // // dbg!(proc_macro::TokenStream::from(expanded));
+fn get_last_path_segment(ty: &Type) -> Option<&PathSegment> {
+    match ty {
+        Type::Path(path) => path.path.segments.last(),
+        _ => None,
+    }
+}
