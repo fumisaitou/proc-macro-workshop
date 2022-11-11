@@ -1,31 +1,38 @@
 extern crate proc_macro;
 
 use quote::quote;
-use syn::{parse_macro_input, Item, FnArg, Signature, Type, TypePath, PathSegment};
+use syn::{parse_macro_input, Item, FnArg, Signature, Type, PathSegment};
 use proc_macro2::TokenStream;
 
 
 #[proc_macro_attribute]
 pub fn sorted(_args: proc_macro::TokenStream, input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let mut out = input.clone();
+    
     let ty = parse_macro_input!(input as Item);
-
     let item_fn = match ty {
         Item::Fn(ref n) => n,
         _ => panic!("function is only allowed."),
     };
 
     let fn_name = &item_fn.sig.ident.clone();
+    let fn_name_cap = {
+        let mut temp = format!("{}", fn_name);
+        temp = temp.to_ascii_uppercase();
+        syn::Ident::new(&temp, proc_macro2::Ident::span(fn_name))
+    };
+
     let fn_data = &item_fn.sig;
     let inputs_parse = inputs_type(fn_data);
     let output_ty = output_type(fn_data);
 
-    let fn_body = format!("'(extern {} (-> ({}) {}))'", fn_name, inputs_parse, output_ty);
+    let fn_body = format!("(extern {} (-> ({}) {}))", fn_name, inputs_parse, output_ty);
     let expanded = quote!{
-        const #fn_name: &str = #fn_body;
+        const #fn_name_cap: &str = #fn_body;
     };
-    
-    proc_macro::TokenStream::from(expanded)    
 
+    out.extend(proc_macro::TokenStream::from(expanded));
+    out
 }
 
 fn inputs_type(data: &Signature) -> TokenStream {
