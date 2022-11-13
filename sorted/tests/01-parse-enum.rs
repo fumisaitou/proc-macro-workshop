@@ -36,14 +36,15 @@ use num_bigint::{BigInt, ToBigInt};
 fn rust_function(a: BigInt, b: BigInt) -> BigInt {
 	a * b
 }
-// pub enum Conference {
-//     RustBeltRust,
-//     RustConf,
-//     RustFest,
-//     RustLatam,
-//     RustRush,
-// }
+
+#[sorted]
+fn test_fn(a: String) -> bool {
+    match &*a {
+        "a" => true,
+        _ => false,
+    }
+}
 
 fn main() {
-    rust_function(2.to_bigint().unwrap(), 3.to_bigint().unwrap());
+    // rust_function(2.to_bigint().unwrap(), 3.to_bigint().unwrap());
 }

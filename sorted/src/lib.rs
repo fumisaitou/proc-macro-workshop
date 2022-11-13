@@ -2,7 +2,7 @@ extern crate proc_macro;
 
 use quote::quote;
 use syn::{parse_macro_input, Item, FnArg, Signature, Type, PathSegment};
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, TokenStream};
 
 
 #[proc_macro_attribute]
@@ -40,12 +40,14 @@ fn inputs_type(data: &Signature) -> TokenStream {
         match arg {
             FnArg::Typed(pat) => {
                 let arg_type = match get_last_path_segment(&*pat.ty) {
-                    Some(path) => path.ident.clone(),
+                    Some(path) => type_check(&path.ident.clone()),
                     None => panic!("only type pattern path at input"),
                 };
 
-                quote!{
-                    #arg_type
+                if let Some(res) = arg_type {
+                    quote!{#res}
+                } else {
+                    panic!("one of input types is undeclared.")
                 }
             },
             _ => panic!("Need an explicitly typed input pattern "),
@@ -61,13 +63,15 @@ fn output_type(data: &Signature) -> TokenStream {
     let ret = match &data.output {
         syn::ReturnType::Default => panic!("return type is necessary"),
         syn::ReturnType::Type(_, ty) => match get_last_path_segment(&*ty) {
-            Some(path) => path.ident.clone(),
+            Some(path) => type_check(&path.ident.clone()),
             None => panic!("only return type pattern path"),
         }
     };
 
-    quote!{
-        #ret
+    if let Some(res) = ret {
+        quote!{#res}
+    } else {
+        panic!("output type is undeclared.")
     }
 }
 
@@ -77,3 +81,16 @@ fn get_last_path_segment(ty: &Type) -> Option<&PathSegment> {
         _ => None,
     }
 }
+
+fn type_check(ty: &Ident) -> Option<Ident> {
+    let span = Ident::span(&ty);
+    let ty_str = format!("{}", &ty);
+    match &*ty_str {
+        "BigInt"             => Some(Ident::new("Int", span)),
+        "char"               => Some(Ident::new("Char", span)),
+        "String" | "&str"    => Some(Ident::new("String", span)),
+        "bool"               => Some(Ident::new("Bool", span)),
+        _ => None,
+    }
+}
+
