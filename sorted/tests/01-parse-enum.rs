@@ -38,7 +38,7 @@ fn rust_function(a: BigInt, b: BigInt) -> BigInt {
 }
 
 #[sorted]
-fn test_fn(a: String) -> bool {
+fn test_fn(a: String, _a: Option<BigInt>) -> bool {
     match &*a {
         "a" => true,
         _ => false,

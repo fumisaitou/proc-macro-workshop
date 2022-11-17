@@ -1,7 +1,7 @@
 extern crate proc_macro;
 
 use quote::quote;
-use syn::{parse_macro_input, Item, FnArg, Signature, Type, PathSegment};
+use syn::{parse_macro_input, Item, FnArg, GenericArgument, Signature, Type, PathArguments, PathSegment};
 use proc_macro2::{Ident, TokenStream};
 
 
@@ -39,10 +39,13 @@ fn inputs_type(data: &Signature) -> TokenStream {
     let ret = data.inputs.iter().map(|arg| {
         match arg {
             FnArg::Typed(pat) => {
-                let arg_type = match get_last_path_segment(&*pat.ty) {
-                    Some(path) => type_check(&path.ident.clone()),
-                    None => panic!("only type pattern path at input"),
-                };
+                let span = get_last_path_segment(&*pat.ty).unwrap().ident.span();
+                let arg_type = get_seg(&*pat.ty, &span);
+                // let arg_type = match get_last_path_segment(&*pat.ty) {
+                //     Some(path) => get_seg(ty, span),
+                //     // Some(path) => type_check(&path.ident.clone()),
+                //     None => panic!("only type pattern path at input"),
+                // };
 
                 if let Some(res) = arg_type {
                     quote!{#res}
@@ -90,7 +93,76 @@ fn type_check(ty: &Ident) -> Option<Ident> {
         "char"               => Some(Ident::new("Char", span)),
         "String" | "&str"    => Some(Ident::new("String", span)),
         "bool"               => Some(Ident::new("Bool", span)),
+        // "Vec"                => Some(Ident::new("Bool", span)),
         _ => None,
     }
 }
 
+fn get_seg(ty: &Type, span: &proc_macro2::Span) -> Option<Ident> {
+    match ty {
+        Type::Tuple(tup) => {
+            let args = tup.elems
+            .iter()
+            .map(|arg_type| {
+                get_seg(arg_type, span).unwrap()
+            });
+
+            let mut whole_args = String::from("");
+            for (i, data) in args.enumerate() {
+                if i==0 { whole_args = format!("{}", data); }
+                else    { whole_args = format!("{} {}", whole_args, data); }
+            };
+            whole_args = format!("[{}]", whole_args);
+
+            Some(syn::Ident::new(&whole_args, *span))
+        },
+        Type::Path(path) => {
+            let type_name = &path.path.segments.first().unwrap().ident;
+            let type_name_str = format!("{}", &type_name);
+
+            match &path.path.segments.first().unwrap().arguments {
+                // not generic type (eg BigInt)
+                PathArguments::None => type_check(&path.path.segments.first().unwrap().ident),
+                // generic type (vec, option, result)
+                PathArguments::AngleBracketed(ang) => {
+                    let args = ang.args
+                        .iter()
+                        .map(|a| match a {
+                            GenericArgument::Type(gene_type) => {
+                                get_seg(gene_type, span).unwrap()
+                            },
+                            _ => panic!("miss"),
+                        });
+                    
+                    let mut whole_args = String::from("");
+                    for (i, data) in args.enumerate() {
+                        if i==0 { whole_args = format!("{}", data); }
+                        else    { whole_args = format!("{} {}", whole_args, data); }
+                    };
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+                    match &*type_name_str {
+                        "Vec" => {
+                            let vec_str = format!("'({})", whole_args);
+                            Some(Ident::new(&vec_str, *span))
+                        },
+                        "Option" => {
+                            let opt_str = format!("(Option {})", whole_args);
+                            Some(Ident::new(&opt_str, *span))
+                        },
+                        "Result" => {
+                            let res_str = format!("(Result {})", whole_args);
+                            Some(Ident::new(&res_str, *span))
+                        }
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+                        _ => panic!("no types"),
+                    }
+                },
+                _ => panic!("miss2")
+            }
+        }
+
+        _ => None,
+    }
+}
