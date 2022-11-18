@@ -32,10 +32,10 @@ use sorted::sorted;
 use num_bigint::{BigInt, ToBigInt};
 
 
-#[sorted]
-fn rust_function(a: BigInt, b: BigInt) -> BigInt {
-	a * b
-}
+// #[sorted]
+// fn rust_function(a: BigInt, b: BigInt) -> BigInt {
+// 	a * b
+// }
 
 #[sorted]
 fn test_fn(a: String, _a: Option<BigInt>) -> bool {
