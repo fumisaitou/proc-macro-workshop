@@ -1,6 +1,6 @@
 extern crate proc_macro;
 
-use std::path::Path;
+use std::fmt::format;
 
 use quote::quote;
 use syn::{parse_macro_input, Item, FnArg, GenericArgument, Signature, Type, PathArguments, PathSegment};
@@ -37,47 +37,56 @@ pub fn sorted(_args: proc_macro::TokenStream, input: proc_macro::TokenStream) ->
     out
 }
 
-fn inputs_type(data: &Signature) -> TokenStream {
+// inputs_type(data: &Signature) -> TokenStream
+fn inputs_type(data: &Signature) -> String {
     let ret = data.inputs.iter().map(|arg| {
         match arg {
             FnArg::Typed(pat) => {
-                let span = get_last_path_segment(&*pat.ty).unwrap().ident.span();
-                let arg_type = get_seg(&*pat.ty, &span);
-                // let arg_type = match get_last_path_segment(&*pat.ty) {
-                //     Some(path) => get_seg(ty, span),
-                //     // Some(path) => type_translate(&path.ident.clone()),
-                //     None => panic!("only type pattern path at input"),
-                // };
+                parse_type(&*pat.ty)
 
-                if let Some(res) = arg_type {
-                    quote!{#res}
-                } else {
-                    panic!("one of input types is undeclared.")
-                }
+                // let span = get_last_path_segment(&*pat.ty).unwrap().ident.span();
+                // let arg_type = get_seg(&*pat.ty, &span);
+
+                // if let Some(res) = arg_type {
+                //     quote!{#res}
+                // } else {
+                //     panic!("one of input types is undeclared.")
+                // }
             },
             _ => panic!("Need an explicitly typed input pattern "),
         }
     });
 
-    quote!{
-        #(#ret) *
+    let mut statements = String::from("");
+    for (i, data) in ret.enumerate() {
+        if i==0 { statements = format!("{}{}", statements, data); }
+        else    { statements = format!("{} {}", statements, data); }
     }
+    statements
+
+    // quote!{
+    //     #(#ret) *
+    // }
 }
 
-fn output_type(data: &Signature) -> TokenStream {
+// output_type(data: &Signature) -> TokenStream
+fn output_type(data: &Signature) -> String {
     let ret = match &data.output {
         syn::ReturnType::Default => panic!("return type is necessary"),
-        syn::ReturnType::Type(_, ty) => match get_last_path_segment(&*ty) {
-            Some(path) => type_translate(&path.ident.clone()),
-            None => panic!("only return type pattern path"),
-        }
+        syn::ReturnType::Type(_, ty) => 
+            parse_type(&*ty)
+            // match get_last_path_segment(&*ty) {
+            //     Some(path) => type_check(&path.ident.clone()),
+            //     None => panic!("only return type pattern path"),
+            // }
     };
 
-    if let Some(res) = ret {
-        quote!{#res}
-    } else {
-        panic!("output type is undeclared.")
-    }
+    ret
+    // if let Some(res) = ret {
+    //     quote!{#res}
+    // } else {
+    //     panic!("output type is undeclared.")
+    // }
 }
 
 fn get_last_path_segment(ty: &Type) -> Option<&PathSegment> {
@@ -87,7 +96,7 @@ fn get_last_path_segment(ty: &Type) -> Option<&PathSegment> {
     }
 }
 
-fn type_translate(ty: &Ident) -> Option<Ident> {
+fn type_check(ty: &Ident) -> Option<Ident> {
     let span = Ident::span(&ty);
     let ty_str = format!("{}", &ty);
     match &*ty_str {
@@ -95,43 +104,8 @@ fn type_translate(ty: &Ident) -> Option<Ident> {
         "char"               => Some(Ident::new("Char", span)),
         "String" | "&str"    => Some(Ident::new("String", span)),
         "bool"               => Some(Ident::new("Bool", span)),
+        // "Vec"                => Some(Ident::new("Bool", span)),
         _ => None,
-    }
-}
-
-fn type_script(ty: &Type, span: &proc_macro2::Span) -> Vec<Option<Ident>> {
-    let mut type_vec: Vec<Option<Ident>> = Vec::new();
-
-    match ty {
-        Type::Tuple(tup) => {
-            type_vec.push(Some(Ident::new("Tuple", span)));
-
-            let args = tup.elems
-                .iter()
-                .map(|arg_type| {
-
-                });
-        },
-        Type::Path(path) => {
-            let type_name = &path.path.segments.first().unwrap().ident;
-            
-            match &path.path.segments.first().unwrap().arguments {
-                PathArguments::None => type_translate(&path.path.segments.first().unwrap().ident),
-                PathArguments::AngleBracketed(ang) => {
-                    type_vec.push(Some(*type_name));
-
-                    for data in ang.args.iter() {
-                        match data {
-                            GenericArgument::Type(gene_type) => {
-                                
-                            }
-                            _ => panic!("miss at generic"),
-                        }
-                    }
-                }
-            }
-
-        }
     }
 }
 
@@ -159,7 +133,7 @@ fn get_seg(ty: &Type, span: &proc_macro2::Span) -> Option<Ident> {
 
             match &path.path.segments.first().unwrap().arguments {
                 // not generic type (eg BigInt)
-                PathArguments::None => type_translate(&path.path.segments.first().unwrap().ident),
+                PathArguments::None => type_check(&path.path.segments.first().unwrap().ident),
                 // generic type (vec, option, result)
                 PathArguments::AngleBracketed(ang) => {
                     let args = ang.args
@@ -184,8 +158,8 @@ fn get_seg(ty: &Type, span: &proc_macro2::Span) -> Option<Ident> {
                             Some(Ident::new(&vec_str, *span))
                         },
                         "Option" => {
-                            let opt_str = "aaaa";
-                            Some(Ident::new(opt_str, *span))
+                            let opt_str = format!("(Option {})", whole_args);
+                            Some(Ident::new(&opt_str, *span))
                         },
                         "Result" => {
                             let res_str = format!("(Result {})", whole_args);
@@ -201,5 +175,69 @@ fn get_seg(ty: &Type, span: &proc_macro2::Span) -> Option<Ident> {
         }
 
         _ => None,
+    }
+}
+
+fn parse_type(ty: &Type) -> String {
+    let mut type_vec: Vec<&str> = Vec::new();
+    match ty {
+        Type::Tuple(tup) => {
+            let mut statements = String::from("[");
+            
+            for (i, data) in tup.elems.iter().enumerate() {
+                if i==0 { statements = format!("{}{}", statements, parse_type(data)); }
+                else    { statements = format!("{} {}", statements, parse_type(data)); }
+            }
+            format!("{}]", statements)
+        },
+        Type::Path(path) => {
+            let mut args_str = String::from("");
+            match &path.path.segments.first().unwrap().arguments {
+                // not generic type (eg BigInt)
+                PathArguments::None => ex_type_check(&path.path.segments.first().unwrap().ident),
+
+                // generic type (vec, option, result)
+                PathArguments::AngleBracketed(ang) => {
+                    let args = ang.args
+                        .iter()
+                        .map(|a| match a {
+                            GenericArgument::Type(gene_type) => {
+                                parse_type(gene_type)
+                            },
+                            _ => panic!("GenericArgument is only Type"),
+                        });
+
+                    for (i, data) in args.enumerate() {
+                        if i==0 { args_str = format!("{}{}", args_str, data); }
+                        else    { args_str = format!("{} {}", args_str, data); }
+                    }
+
+                let type_name = &path.path.segments.first().unwrap().ident;
+                let type_name_str = format!("{}", &type_name);
+
+                match &* type_name_str {
+                    "Vec"    => format!("'({})", args_str),
+                    "Option" => format!("(Option {})", args_str),
+                    "Result" => format!("(Result {})", args_str),
+                    _ => panic!("Generic Type only Vec/Option/Result"),
+                }
+                    
+                },
+                _ => panic!("no parentheses at PathArgument"),
+            }
+        },
+        _ => panic!("parse type miss"),
+    }
+}
+
+fn ex_type_check(id: &Ident) -> String {
+    let id_str = format!("{}", &id);
+    match &*id_str {
+        "BigInt"             => String::from("Int"),
+        "char"               => String::from("Char"),
+        "String" | "&str"    => String::from("String"),
+        "bool"               => String::from("Bool"),
+        // "Vec"                => Some(Ident::new("Bool", span)),
+        _ => panic!("no match String pattern"),
     }
 }
